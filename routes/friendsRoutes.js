@@ -13,7 +13,7 @@ router.get('/suggestions', protect, friendsController.getFriendSuggestions);
 router.get('/search', protect, friendsController.searchUsersForFriends);
 
 // Send friend request
-router.post('/request', protect, friendsController.sendFriendRequest);
+router.post('/send-request', protect, friendsController.sendFriendRequest);
 
 // Get pending friend requests
 router.get('/requests/pending', protect, friendsController.getPendingRequests);

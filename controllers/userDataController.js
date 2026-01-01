@@ -226,12 +226,59 @@ const getUserStats = async (req, res) => {
   }
 };
 
+
+// Search for users nearby
+const searchNearbyUsers = async (req, res) => {
+  try {
+    const { longitude, latitude, maxDistance } = req.query;
+
+    if (!longitude || !latitude) {
+      return res.status(400).json({ success: false, message: 'Longitude and latitude are required.' });
+    }
+
+    const user = await UserData.findOne({ userId: req.user.id });
+    if (user && user.location) {
+      user.location.coordinates = [parseFloat(longitude), parseFloat(latitude)];
+      await user.save();
+    } else if (user) {
+      user.location = { type: 'Point', coordinates: [parseFloat(longitude), parseFloat(latitude)] };
+      await user.save();
+    } else {
+        const newUser_data = new UserData({
+            userId: req.user.id,
+            location: { type: 'Point', coordinates: [parseFloat(longitude), parseFloat(latitude)] }
+        });
+        await newUser_data.save();
+    }
+
+    // Find users near the current user
+    const users = await UserData.find({
+      userId: { $ne: req.user.id },
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [parseFloat(longitude), parseFloat(latitude)]
+          },
+          $maxDistance: parseInt(maxDistance) || 10000 // 10km in meters
+        }
+      }
+    }).populate('userId', 'name email userId photoURL phone');
+
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Error searching nearby users:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
   uploadProfilePicture,
   getUserStats,
-  searchUsers
+  searchUsers,
+  searchNearbyUsers
 };
 
 

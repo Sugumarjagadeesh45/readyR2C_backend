@@ -3,6 +3,7 @@ const Friendship = require('../models/Friendship');
 const FriendRequest = require('../models/FriendRequest');
 const UserData = require('../models/UserData');
 const mongoose = require('mongoose');
+const fcmService = require('../services/fcmService');
 
 const DEFAULT_AVATAR = 'https://randomuser.me/api/portraits/men/32.jpg';
 
@@ -25,10 +26,12 @@ exports.getFriends = async (req, res) => {
       .sort({ lastInteraction: -1 });
 
     // Extract friend details
-    const friends = friendships.map(friendship => {
+    const friends = await Promise.all(friendships.map(async (friendship) => {
       const friend = toStringId(friendship.user1._id) === toStringId(userId)
         ? friendship.user2
         : friendship.user1;
+
+      const userData = await UserData.findOne({ userId: friend._id });
 
       return {
         id: friend._id,
@@ -39,9 +42,11 @@ exports.getFriends = async (req, res) => {
         phone: friend.phone || '',
         friendshipId: friendship._id,
         lastInteraction: friendship.lastInteraction || friendship.updatedAt || friendship.acceptedAt || null,
-        status: 'friend'
+        status: 'friend',
+        isOnline: userData ? userData.isOnline : false,
+        lastSeen: userData ? userData.lastActive : null,
       };
-    });
+    }));
 
     return res.json({
       success: true,
@@ -162,28 +167,38 @@ exports.getFriendSuggestions = async (req, res) => {
 // Send friend request
 exports.sendFriendRequest = async (req, res) => {
   try {
-    const { toUserId, message } = req.body;
+    const { toUserId, recipientId, message } = req.body;
     const fromUserId = req.user.id;
+    
+    const recipientIdentifier = toUserId || recipientId;
 
-    if (!toUserId) {
-      return res.status(400).json({ success: false, message: 'toUserId is required' });
+    if (!recipientIdentifier) {
+      return res.status(400).json({ success: false, message: 'toUserId or recipientId is required' });
     }
 
-    if (toStringId(toUserId) === toStringId(fromUserId)) {
+    if (toStringId(recipientIdentifier) === toStringId(fromUserId)) {
       return res.status(400).json({ success: false, message: 'Cannot send friend request to yourself' });
     }
 
     // Validate recipient exists
-    const toUser = await User.findById(toUserId);
+    let toUser;
+    if (mongoose.Types.ObjectId.isValid(recipientIdentifier)) {
+      toUser = await User.findById(recipientIdentifier);
+    } else {
+      toUser = await User.findOne({ userId: recipientIdentifier });
+    }
+    
     if (!toUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+    
+    const toUserIdFound = toUser._id;
 
     // Check if already friends or blocked
     const existingFriendship = await Friendship.findOne({
       $or: [
-        { user1: fromUserId, user2: toUserId },
-        { user1: toUserId, user2: fromUserId }
+        { user1: fromUserId, user2: toUserIdFound },
+        { user1: toUserIdFound, user2: fromUserId }
       ]
     });
 
@@ -199,8 +214,8 @@ exports.sendFriendRequest = async (req, res) => {
     // Check for existing friend request
     const existingRequest = await FriendRequest.findOne({
       $or: [
-        { fromUserId, toUserId },
-        { fromUserId: toUserId, toUserId: fromUserId }
+        { fromUserId, toUserId: toUserIdFound },
+        { fromUserId: toUserIdFound, toUserId: fromUserId }
       ]
     });
 
@@ -223,13 +238,16 @@ exports.sendFriendRequest = async (req, res) => {
     // Create new friend request
     const friendRequest = new FriendRequest({
       fromUserId,
-      toUserId,
+      toUserId: toUserIdFound,
       message: message || '',
       status: 'pending',
       seen: false
     });
 
     await friendRequest.save();
+
+    // Send FCM notification to the recipient (fire and forget)
+    fcmService.sendFriendRequestNotification(toUserIdFound, req.user);
 
     // Optionally populate for response
     const populatedRequest = await FriendRequest.findById(friendRequest._id)
@@ -297,6 +315,9 @@ exports.acceptFriendRequest = async (req, res) => {
     });
 
     await friendship.save();
+
+    // Notify the original sender that their request was accepted (fire and forget)
+    fcmService.sendFriendRequestAcceptedNotification(friendRequest.fromUserId, req.user);
 
     return res.json({
       success: true,

@@ -18,8 +18,15 @@ const UserDataSchema = new mongoose.Schema(
       default: ''
     },
     location: {
-      type: String,
-      default: ''
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number],
+        default: [0, 0]
+      }
     },
     website: {
       type: String,
@@ -47,6 +54,10 @@ const UserDataSchema = new mongoose.Schema(
       followingCount: { type: Number, default: 0 },
       likesCount: { type: Number, default: 0 }
     },
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
     lastActive: {
       type: Date,
       default: Date.now
@@ -59,6 +70,7 @@ const UserDataSchema = new mongoose.Schema(
 
 // Index for faster queries
 UserDataSchema.index({ userId: 1 });
+UserDataSchema.index({ location: '2dsphere' });
 
 
 // Virtual for profile completion percentage

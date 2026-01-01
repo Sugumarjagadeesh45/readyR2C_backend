@@ -3,17 +3,17 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const protect = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
+const User = require('../models/userModel'); // ✅ Added missing import
 
 console.log('authController:', Object.keys(authController));
 
 // Helper functions for tokens
-const generateAccessToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '15m' });
+const generateAccessToken = (user) => {
+  // ✅ Fixed payload to match authController and middleware expectations ({ id, userId })
+  return jwt.sign({ id: user._id, userId: user.userId }, process.env.JWT_SECRET, { expiresIn: '15m' });
 };
 
-const generateRefreshToken = (userId) => {
-  return jwt.sign({ userId }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '7d' });
-};
+// Note: authController uses JWT_SECRET for long-lived tokens (7d), so we align with that.
 
 // Public routes
 router.post('/check-user-id', authController.checkUserId);
@@ -39,15 +39,18 @@ router.post('/refresh-token', async (req, res) => {
       return res.status(400).json({ error: 'Refresh token is required' });
     }
     
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+    // ✅ Verify with JWT_SECRET since authController signs with it
+    // If you strictly use REFRESH_TOKEN_SECRET, ensure authController uses it too. 
+    // For stability now, we use JWT_SECRET to match the login token.
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
     
     // Verify user still exists
-    const user = await User.findById(decoded.userId);
+    const user = await User.findById(decoded.id); // ✅ Fixed: use decoded.id (Mongo ID), not userId
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
     
-    const newAccessToken = generateAccessToken(decoded.userId);
+    const newAccessToken = generateAccessToken(user); // ✅ Pass full user object
     res.json({ 
       success: true,
       accessToken: newAccessToken 

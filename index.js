@@ -13,15 +13,17 @@ dotenv.config();
 
 console.log('MONGODB_URL:', process.env.MONGODB_URL);
 
-const app = express();
+const http = require('http');
+const { initSocket } = require('./services/socket');
 
-// ✅ Middleware with increased payload limit
+const app = express();
+const server = http.createServer(app);
+initSocket(server);
+
+// ✅ Middleware with increased payload limit and dynamic CORS
 app.use(cors({
-  origin: [
-    'http://localhost:5000',
-    'http://10.0.2.2:5000',
-    'http://192.168.93.126:5000'
-  ],
+  // Allow any origin in development to prevent "Network request failed" on devices
+  origin: true, 
   credentials: true,
 }));
 
@@ -37,9 +39,18 @@ connectDB();
 
 // Add this after other route imports
 const friendsRoutes = require('./routes/friendsRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const conversationRoutes = require('./routes/conversationRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const fcmTokenRoutes = require('./routes/fcmTokenRoutes'); // Corrected route
 
 // Add this after other app.use() calls
 app.use('/api/friends', friendsRoutes);
+app.use('/api', messageRoutes);
+app.use('/api', conversationRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', fcmTokenRoutes); // Corrected route and path
+
 
 
 // ✅ Routes
@@ -61,6 +72,6 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });

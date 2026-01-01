@@ -357,35 +357,15 @@ const googleSignIn = async (req, res) => {
         console.log('Token verified via ID token');
       } catch (verifyError) {
         console.error('Google ID token verification failed:', verifyError.message);
-        // Fall back to user data if token verification fails
-        if (userData) {
-          console.log('Falling back to user data from request');
-          payload = {
-            email: userData.email,
-            name: userData.name,
-            picture: userData.photo,
-            sub: userData.id
-          };
-        } else {
-          return res.status(401).json({ 
-            success: false, 
-            message: 'Invalid Google token and no user data provided' 
-          });
-        }
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid Google token' 
+        });
       }
-    } else if (userData) {
-      // Use user data directly if no token
-      console.log('Using user data directly');
-      payload = {
-        email: userData.email,
-        name: userData.name,
-        picture: userData.photo,
-        sub: userData.id
-      };
     } else {
       return res.status(400).json({ 
         success: false, 
-        message: 'Google token or user data is required' 
+        message: 'Google ID token is required' 
       });
     }
 
@@ -411,13 +391,31 @@ const googleSignIn = async (req, res) => {
     if (user) {
       console.log('Existing user found:', user.email);
       
+      let userUpdated = false;
+
       // Update Google info if needed
       if (!user.googleId) {
         user.googleId = googleId;
-        user.photoURL = picture || user.photoURL;
-        user.name = name || user.name;
+        userUpdated = true;
+      }
+      
+      // Check if critical profile data is missing (DOB/Gender)
+      // If missing, force registrationComplete to false so they see the modal
+      if ((!user.dateOfBirth || !user.gender) && user.registrationComplete) {
+        console.log('User has missing profile data, resetting registrationComplete to false');
+        user.registrationComplete = false;
+        userUpdated = true;
+      }
+
+      if (userUpdated) {
         await user.save();
-        console.log('Updated Google info for user:', user.email);
+      }
+
+      // Ensure UserData exists for existing users
+      const userDataExists = await UserData.exists({ userId: user._id });
+      if (!userDataExists) {
+        await new UserData({ userId: user._id }).save();
+        console.log('Created missing UserData for existing user');
       }
     } else {
       // Create new user
@@ -433,7 +431,7 @@ const googleSignIn = async (req, res) => {
         photoURL: picture,
         userId: userId,
         isEmailVerified: true,
-        registrationComplete: true
+        registrationComplete: false
       });
 
       await user.save();
@@ -710,16 +708,23 @@ const checkUser = async (req, res) => {
 // Login
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, phone, phoneNumber } = req.body;
+    const actualPhoneNumber = phoneNumber || phone;
 
-    console.log(`Login attempt for email: ${email}`);
+    console.log(`Login attempt - Email: ${email}, Phone: ${actualPhoneNumber}`);
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    if ((!email && !actualPhoneNumber) || !password) {
+      return res.status(400).json({ success: false, message: 'Email/Phone and password are required' });
     }
 
-    const emailLower = email.toLowerCase();
-    const user = await User.findOne({ email: emailLower }).select('+password');
+    let user;
+    let identifier = email || actualPhoneNumber;
+
+    if (email) {
+      user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    } else {
+      user = await User.findOne({ phone: actualPhoneNumber }).select('+password');
+    }
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -728,7 +733,7 @@ const login = async (req, res) => {
     console.log(`User found: ${user.name}, has password: ${!!user.password}`);
 
     if (!user.password) {
-      console.log(`User ${emailLower} has no password set`);
+      console.log(`User ${identifier} has no password set`);
       return res.status(400).json({
         success: false,
         message: 'This account was created with Google Sign-In or phone verification. Please use the original sign-in method.',
@@ -737,11 +742,11 @@ const login = async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log(`Invalid password for user: ${emailLower}`);
+      console.log(`Invalid password for user: ${identifier}`);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    console.log(`Login successful for user: ${emailLower}`);
+    console.log(`Login successful for user: ${identifier}`);
 
     const token = generateToken(user);
 

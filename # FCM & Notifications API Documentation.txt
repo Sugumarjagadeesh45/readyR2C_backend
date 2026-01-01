@@ -1,0 +1,198 @@
+# FCM & Notifications API Documentation
+
+This document provides a guide for frontend developers to integrate with the backend for push notifications using Firebase Cloud Messaging (FCM).
+
+**Note for the Backend Developer:** Before the frontend can use this, you must run `npm install` in your backend project directory to install the `firebase-admin` package and other dependencies.
+
+---
+
+## 1. Setup: Registering a Device Token
+
+To receive any notifications, the client application must first get an FCM registration token from the Firebase SDK and send it to the backend. This should be done when the app starts and whenever a new token is generated.
+
+### Register/Update FCM Token
+
+Registers a device token for the currently authenticated user. The backend will associate this token with the user and use it to send push notifications.
+
+- **Method:** `POST`
+- **URL:** `/api/fcm/register-token`
+- **Authentication:** Required (send JWT in `Authorization` header)
+
+**Request Body (JSON):**
+
+```json
+{
+  "token": "your_device_fcm_token_here"
+}
+```
+
+**Success Response (200 OK):**
+
+```json
+{
+  "message": "FCM token registered successfully.",
+  "token": {
+    "userId": "6954147070f6a0aa0ea3cb66",
+    "token": "your_device_fcm_token_here",
+    "lastUpdated": "2025-12-31T12:00:00.000Z",
+    "_id": "..."
+  }
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: If the `token` is missing from the body.
+- `401 Unauthorized`: If the user is not authenticated.
+
+---
+
+## 2. Receiving Notifications (Payload Structure)
+
+When the backend sends a notification, the mobile app will receive a payload. The payload will contain a `notification` object (for the title and body) and a `data` object (for custom information). The `data` object is crucial for navigation and in-app actions.
+
+The `type` field in the `data` object tells you what kind of notification it is.
+
+### Example: New Message Notification
+
+```json
+{
+  "notification": {
+    "title": "New message from John Doe",
+    "body": "Hey, are you free this evening?"
+  },
+  "data": {
+    "type": "NEW_MESSAGE",
+    "senderId": "6954147070f6a0aa0ea3cb67",
+    "messageId": "..." 
+  }
+}
+```
+
+### Example: Friend Request Notification
+
+```json
+{
+  "notification": {
+    "title": "New Friend Request",
+    "body": "Jane Doe sent you a friend request."
+  },
+  "data": {
+    "type": "FRIEND_REQUEST",
+    "senderId": "6954147070f6a0aa0ea3cb68"
+  }
+}
+```
+
+### Example: Friend Request Accepted Notification
+
+```json
+{
+  "notification": {
+    "title": "Friend Request Accepted",
+    "body": "John Doe accepted your friend request."
+  },
+  "data": {
+    "type": "FRIEND_REQUEST_ACCEPTED",
+    "acceptorId": "6954147070f6a0aa0ea3cb67"
+  }
+}
+```
+
+### Example: Admin Broadcast Notification
+
+```json
+{
+  "notification": {
+    "title": "Important Announcement",
+    "body": "The app will be down for maintenance tonight at 11 PM."
+  },
+  "data": {
+    "type": "ADMIN_MESSAGE" 
+  }
+}
+```
+
+---
+
+## 3. Testing Endpoints (Admin Only)
+
+These endpoints are for testing and administrative purposes. They require the user to be authenticated as an **admin**.
+
+### Send a Direct Notification
+
+Sends a notification to a single, specific user.
+
+- **Method:** `POST`
+- **URL:** `/api/fcm/direct`
+- **Authentication:** Required (Admin access)
+
+**Request Body (JSON):**
+
+```json
+{
+  "userId": "6954147070f6a0aa0ea3cb66",
+  "title": "Test Title",
+  "body": "This is a test notification body.",
+  "data": {
+    "customKey": "customValue"
+  }
+}
+```
+
+### Send a Broadcast Notification
+
+Sends a notification to all users who have registered an FCM token.
+
+- **Method:** `POST`
+- **URL:** `/api/fcm/broadcast`
+- **Authentication:** Required (Admin access)
+
+**Request Body (JSON):**
+
+```json
+{
+  "title": "Broadcast Title",
+  "body": "This is a test broadcast to all users.",
+  "data": {
+    "announcementId": "123"
+  }
+}
+```
+---
+## How to Verify with Thunder Client
+
+1.  **Get Auth Token:**
+    *   Send a `POST` request to `/api/auth/login` with user credentials.
+    *   Copy the `token` from the response body.
+
+2.  **Set Auth Header:**
+    *   For all subsequent requests, go to the **Auth** tab.
+    *   Select **Bearer Token**.
+    *   Paste the copied token into the token field.
+
+3.  **Register a Device:**
+    *   **Method:** `POST`
+    *   **URL:** `http://localhost:5000/api/fcm/register-token`
+    *   Go to the **Body** tab and select **JSON**.
+    *   Paste the following:
+        ```json
+        {
+          "token": "TEST_DEVICE_TOKEN_FROM_THUNDER_CLIENT"
+        }
+        ```
+    *   Send the request. You should get a `200 OK` response.
+
+4.  **Test a Direct Notification (Admin):**
+    *   First, ensure your test user has admin privileges.
+    *   **Method:** `POST`
+    *   **URL:** `http://localhost:5000/api/fcm/direct`
+    *   Go to the **Body** tab and select **JSON**.
+    *   Paste the following (replace `userId` with the ID of the user you want to notify):
+        ```json
+        {
+          "userId": "THE_USER_ID_TO_NOTIFY",
+          "title": "Thunder Client Test",
+          "body": "This is a test from Thunder Client."
+        }
+        ```
+    *   Send the request. This will trigger the backend to send a notification. You won't see the notification in Thunder Client, but you can check your backend server logs for confirmation.
